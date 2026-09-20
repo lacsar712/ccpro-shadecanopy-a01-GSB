@@ -136,6 +136,7 @@ onMounted(async () => {
             <th>编码</th>
             <th>作物</th>
             <th>状态</th>
+            <th>最近帘程时刻</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -146,6 +147,7 @@ onMounted(async () => {
             <td>{{ row.zoneCode }}</td>
             <td>{{ row.cropName || '—' }}</td>
             <td><span class="badge" :class="row.status">{{ statusLabel[row.status] || row.status }}</span></td>
+            <td>{{ row.lastShadeAt ? new Date(row.lastShadeAt).toLocaleString() : '—' }}</td>
             <td class="actions">
               <button class="btn ghost" @click="edit(row)">编辑</button>
               <button class="btn danger" @click="remove(row.id)">删除</button>

@@ -1,6 +1,15 @@
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
+# 遮阳帘「拉开」且幅度 > 60 时联动写入气候记录的默认采样值。
+# PAR 取小于 200 的正数；温湿度 / CO2 为棚内常见默认读数。
+SHADE_LINKED_CLIMATE_PAR = 120
+SHADE_LINKED_CLIMATE_TEMP_C = "26.00"
+SHADE_LINKED_CLIMATE_HUMIDITY_PCT = "60.00"
+SHADE_LINKED_CLIMATE_CO2_PPM = "600.00"
+# 同分区两次行程操作时刻的最小间隔（含边界，单位：分钟）。
+SHADE_TRAVEL_GAP_MINUTES = 15
+
 
 class Greenhouse(models.Model):
     name = models.CharField(max_length=120)
@@ -100,3 +109,36 @@ class IrrigationCycle(models.Model):
 
     def __str__(self):
         return f"Irrig@{self.zone_id} {self.start_at} ({self.status})"
+
+
+class ShadeTravel(models.Model):
+    """遮阳帘行程：挂在分区上，记录帘子拉开 / 收拢的幅度。"""
+
+    DIRECTION_OPEN = "open"
+    DIRECTION_CLOSE = "close"
+    DIRECTION_CHOICES = [
+        (DIRECTION_OPEN, "拉开"),
+        (DIRECTION_CLOSE, "收拢"),
+    ]
+
+    zone = models.ForeignKey(
+        Zone, on_delete=models.CASCADE, related_name="shade_travels"
+    )
+    direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES)
+    extent = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(100)]
+    )
+    operated_at = models.DateTimeField()
+    operator_name = models.CharField(max_length=80)
+    note = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-operated_at"]
+        indexes = [
+            models.Index(fields=["zone", "operated_at"]),
+        ]
+
+    def __str__(self):
+        return f"Shade@{self.zone_id} {self.get_direction_display()}{self.extent}% {self.operated_at}"

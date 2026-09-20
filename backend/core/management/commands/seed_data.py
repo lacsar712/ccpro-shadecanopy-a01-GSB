@@ -5,13 +5,14 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from core.models import ClimateLog, Greenhouse, IrrigationCycle, Zone
+from core.models import ClimateLog, Greenhouse, IrrigationCycle, ShadeTravel, Zone
+from core.services import create_shade_travel
 
 User = get_user_model()
 
 
 class Command(BaseCommand):
-    help = "初始化演示账号与温室气候/轮灌种子数据"
+    help = "初始化演示账号与温室气候/轮灌/遮阳行程种子数据"
 
     def handle(self, *args, **options):
         admin, created = User.objects.get_or_create(
@@ -162,9 +163,41 @@ class Command(BaseCommand):
             ]
         )
 
+        # ---- 遮阳帘行程 ----
+        # A-01：拉开 80%（>60），由 service 同事务联动写入一条气候记录；
+        # 该行程同时作为「前后 15 分钟冲突」样例——对 A-01 以当前时刻再
+        # 登记任意行程都会返回 409，并带上本条行程编号。
+        create_shade_travel(
+            zone=z1,
+            direction=ShadeTravel.DIRECTION_OPEN,
+            extent=80,
+            operated_at=now - timedelta(minutes=10),
+            operator_name="张师傅",
+            note="午间强光，拉开主帘",
+        )
+        # A-02：收拢 50%，不触发气候联动。
+        create_shade_travel(
+            zone=z2,
+            direction=ShadeTravel.DIRECTION_CLOSE,
+            extent=50,
+            operated_at=now - timedelta(hours=2),
+            operator_name="李阿姨",
+            note="傍晚收拢保温",
+        )
+        # B-02：休耕分区，备注必填；拉开 70%（>60）同样联动气候记录。
+        create_shade_travel(
+            zone=z5,
+            direction=ShadeTravel.DIRECTION_OPEN,
+            extent=70,
+            operated_at=now - timedelta(minutes=90),
+            operator_name="王工",
+            note="休耕期试帘，巡检卷膜机构",
+        )
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"种子完成：温室 {Greenhouse.objects.count()}，分区 {Zone.objects.count()}，"
-                f"气候 {ClimateLog.objects.count()}，轮灌 {IrrigationCycle.objects.count()}"
+                f"气候 {ClimateLog.objects.count()}，轮灌 {IrrigationCycle.objects.count()}，"
+                f"遮阳行程 {ShadeTravel.objects.count()}"
             )
         )
