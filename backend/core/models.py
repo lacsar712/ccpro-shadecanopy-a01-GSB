@@ -100,3 +100,32 @@ class IrrigationCycle(models.Model):
 
     def __str__(self):
         return f"Irrig@{self.zone_id} {self.start_at} ({self.status})"
+
+
+class ShadeTravel(models.Model):
+    """遮阳帘行程：挂在分区上，记录帘子拉开/收拢的幅度。"""
+
+    DIRECTION_OPEN = "open"
+    DIRECTION_CLOSE = "close"
+    DIRECTION_CHOICES = [
+        (DIRECTION_OPEN, "拉开"),
+        (DIRECTION_CLOSE, "收拢"),
+    ]
+
+    zone = models.ForeignKey(
+        Zone, on_delete=models.CASCADE, related_name="shade_travels"
+    )
+    direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES)
+    extent = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(100)]
+    )
+    operated_at = models.DateTimeField()
+    operator_name = models.CharField(max_length=80)
+    notes = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-operated_at", "-id"]
+
+    def __str__(self):
+        return f"Shade{self.direction}@{self.zone_id} {self.operated_at} ({self.extent})"

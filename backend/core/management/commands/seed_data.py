@@ -5,13 +5,14 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from core.models import ClimateLog, Greenhouse, IrrigationCycle, Zone
+from core.models import ClimateLog, Greenhouse, IrrigationCycle, ShadeTravel, Zone
+from core.services import ShadeTravelConflict, register_shade_travel
 
 User = get_user_model()
 
 
 class Command(BaseCommand):
-    help = "初始化演示账号与温室气候/轮灌种子数据"
+    help = "初始化演示账号与温室气候/轮灌/遮阳行程种子数据"
 
     def handle(self, *args, **options):
         admin, created = User.objects.get_or_create(
@@ -162,9 +163,56 @@ class Command(BaseCommand):
             ]
         )
 
+        # 遮阳行程：成功的拉开行程走同一事务服务，幅度 > 60 会联动写气候记录。
+        open_travel = register_shade_travel(
+            zone=z1,
+            direction=ShadeTravel.DIRECTION_OPEN,
+            extent=80,
+            operated_at=now - timedelta(minutes=40),
+            operator_name="张师傅",
+            notes="午间强光，拉开遮阳网八成",
+        )
+        register_shade_travel(
+            zone=z2,
+            direction=ShadeTravel.DIRECTION_CLOSE,
+            extent=50,
+            operated_at=now - timedelta(hours=2),
+            operator_name="张师傅",
+            notes="傍晚收拢一半保温",
+        )
+        # 休耕分区允许登记，但备注必填。
+        register_shade_travel(
+            zone=z5,
+            direction=ShadeTravel.DIRECTION_OPEN,
+            extent=70,
+            operated_at=now - timedelta(hours=5),
+            operator_name="李农艺",
+            notes="休耕养地期通风晾晒，按规定留痕",
+        )
+
+        # 15 分钟冲突样例：与上面的拉开行程相隔 10 分钟，应被拒绝（409 语义），
+        # 不入库，已有的 open_travel 编号即为冲突行程编号。
+        try:
+            register_shade_travel(
+                zone=z1,
+                direction=ShadeTravel.DIRECTION_OPEN,
+                extent=90,
+                operated_at=open_travel.operated_at + timedelta(minutes=10),
+                operator_name="王班长",
+                notes="冲突演示，不应落库",
+            )
+        except ShadeTravelConflict as exc:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"冲突样例已按预期拒绝：15 分钟窗口内已有行程 "
+                    f"#{exc.conflict_travel_id}（conflictTravelId），冲突样例未入库"
+                )
+            )
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"种子完成：温室 {Greenhouse.objects.count()}，分区 {Zone.objects.count()}，"
-                f"气候 {ClimateLog.objects.count()}，轮灌 {IrrigationCycle.objects.count()}"
+                f"气候 {ClimateLog.objects.count()}，轮灌 {IrrigationCycle.objects.count()}，"
+                f"遮阳行程 {ShadeTravel.objects.count()}"
             )
         )

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import ClimateLog, Greenhouse, IrrigationCycle, Zone
+from .models import ClimateLog, Greenhouse, IrrigationCycle, ShadeTravel, Zone
 
 
 class GreenhouseSerializer(serializers.ModelSerializer):
@@ -36,6 +36,7 @@ class ZoneSerializer(serializers.ModelSerializer):
     zoneCode = serializers.CharField(source="zone_code")
     cropName = serializers.CharField(source="crop_name", allow_blank=True, required=False)
     greenhouseName = serializers.CharField(source="greenhouse.name", read_only=True)
+    lastShadeAt = serializers.SerializerMethodField()
 
     class Meta:
         model = Zone
@@ -46,10 +47,11 @@ class ZoneSerializer(serializers.ModelSerializer):
             "zoneCode",
             "cropName",
             "status",
+            "lastShadeAt",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "greenhouseName", "created_at", "updated_at")
+        read_only_fields = ("id", "greenhouseName", "lastShadeAt", "created_at", "updated_at")
 
     def validate(self, attrs):
         greenhouse = attrs.get("greenhouse") or getattr(self.instance, "greenhouse", None)
@@ -63,6 +65,12 @@ class ZoneSerializer(serializers.ModelSerializer):
                     {"zoneCode": "同一温室内分区编码必须唯一"}
                 )
         return attrs
+
+    def get_lastShadeAt(self, obj):
+        if hasattr(obj, "last_shade_at"):
+            return obj.last_shade_at
+        latest = obj.shade_travels.order_by("-operated_at", "-id").first()
+        return latest.operated_at if latest else None
 
 
 class ClimateLogSerializer(serializers.ModelSerializer):
@@ -142,3 +150,46 @@ class IrrigationCycleSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
+
+
+class ShadeTravelSerializer(serializers.ModelSerializer):
+    zoneId = serializers.PrimaryKeyRelatedField(
+        source="zone", queryset=Zone.objects.all()
+    )
+    extent = serializers.IntegerField(min_value=1, max_value=100)
+    operatedAt = serializers.DateTimeField(source="operated_at")
+    operatorName = serializers.CharField(source="operator_name", max_length=80)
+    notes = serializers.CharField(
+        allow_blank=True, required=False, default=""
+    )
+    zoneCode = serializers.CharField(source="zone.zone_code", read_only=True)
+    greenhouseName = serializers.CharField(
+        source="zone.greenhouse.name", read_only=True
+    )
+    zoneStatus = serializers.CharField(source="zone.status", read_only=True)
+
+    class Meta:
+        model = ShadeTravel
+        fields = (
+            "id",
+            "zoneId",
+            "zoneCode",
+            "greenhouseName",
+            "zoneStatus",
+            "direction",
+            "extent",
+            "operatedAt",
+            "operatorName",
+            "notes",
+            "created_at",
+        )
+        read_only_fields = ("id", "zoneCode", "greenhouseName", "zoneStatus", "created_at")
+
+    def validate(self, attrs):
+        zone = attrs.get("zone") or getattr(self.instance, "zone", None)
+        notes = attrs.get("notes", getattr(self.instance, "notes", "") if self.instance else "")
+        if zone and zone.status == Zone.STATUS_IDLE:
+            raise serializers.ValidationError({"zoneId": "空闲分区禁止登记遮阳行程"})
+        if zone and zone.status == Zone.STATUS_FALLOW and not (notes or "").strip():
+            raise serializers.ValidationError({"notes": "休耕分区登记行程必须填写备注"})
+        return attrs
